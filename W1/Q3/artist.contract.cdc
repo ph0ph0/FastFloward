@@ -1,101 +1,114 @@
-pub contract Artist {
-  pub struct Canvas {
+import Artist from 0x01
 
-    pub let width: UInt8
-    pub let height: UInt8
-    pub let pixels: String
-
-    init(width: UInt8, height: UInt8, pixels: String) {
-      self.width = width
-      self.height = height
-      // The following pixels
-      // 123
-      // 456
-      // 789
-      // should be serialized as
-      // 123456789
-      self.pixels = pixels
+pub fun serialzeStringArray(_ lines: [String]): String {
+    var buffer = ""
+    for line in lines {
+        // log(line)
+        buffer = buffer.concat(line)
     }
-  }
+    return buffer
+}
 
-  pub resource Picture {
+pub fun convertBackToPixelArray(_ pixelString: String, width: Int, height: Int): [String] {
+    var pixelArray: [String] = []
+    let width = width
+    let height = height
 
-    pub let canvas: Canvas
-    pub let id: String    
-    init(canvas: Canvas) {
-      self.canvas = canvas
-      self.id = canvas.pixels
-    }
-  }
-
-  pub resource Printer {
-
-    pub let width: UInt8
-    pub let height: UInt8
-    pub let prints: {String: Canvas}
-
-    init(width: UInt8, height: UInt8) {
-      self.width = width;
-      self.height = height;
-      self.prints = {}
+    let NumberOfPixels = pixelString.length
+    var start = 0
+    var end = width
+    while end <= NumberOfPixels {
+        let slice = pixelString.slice(from: start, upTo: end)
+        pixelArray.append(slice)
+        start = start + (width)
+        end = end + width
     }
 
-    pub fun print(canvas: Canvas): @Picture? {
-      // Canvas needs to fit Printer's dimensions.
-      if canvas.pixels.length != Int(self.width * self.height) {
-        return nil
-      }
+    return pixelArray
+}
 
-      // Canvas can only use visible ASCII characters.
-      for symbol in canvas.pixels.utf8 {
-        if symbol < 32 || symbol > 126 {
-          return nil
+pub fun addFrameEnds(to pixelArray: [String], width: Int, height: Int): [String] {
+    var frameEndArray: [String] = []
+
+
+    let corner = "x"
+    let side = "-"
+
+    var i = 1
+    while i <= width + 2 {
+        if (i == 1 || i == width + 2) {
+            frameEndArray.append(corner)
+        } else {
+            frameEndArray.append(side)
         }
-      }
-
-      // Printer is only allowed to print unique canvases.
-      if self.prints.containsKey(canvas.pixels) == false {
-        let picture <- create Picture(canvas: canvas)
-        self.prints[canvas.pixels] = canvas
-
-        return <- picture
-      } else {
-        return nil
-      }
+        i = i + 1
     }
+    
+    let frameEnd = serialzeStringArray(frameEndArray)
+    pixelArray.insert(at: 0, frameEnd)
+    pixelArray.insert(at: height + 1, frameEnd)
+    return pixelArray
+}
+
+pub fun addFrameSides(to pixelArray: [String], width: Int, height: Int): [String] {
+
+    var i = 0
+    let side = "|"
+    while i < pixelArray.length {
+        if (i == 0 || i == pixelArray.length - 1) {
+            i = i + 1
+            continue
+        }
+        pixelArray[i] = side.concat(pixelArray[i])
+        pixelArray[i] = pixelArray[i].concat(side)
+
+        i = i + 1
+    }
+    return pixelArray
+}
+
+pub fun frameCanvas(_ canvas: Artist.Canvas): Artist.Canvas {
+    let pixels = canvas.pixels
+    let width = Int(canvas.width)
+    let height = Int(canvas.height)
+
+    var pixelArray = convertBackToPixelArray(pixels, width: width, height: height)
+
+    pixelArray= addFrameEnds(to: pixelArray, width: width, height: height)
+    pixelArray = addFrameSides(to: pixelArray, width: width, height: height)
+    let framedCanvas = Artist.Canvas(width: UInt8(width + 2), height: UInt8(height + 2), pixels: serialzeStringArray(pixelArray))
+    return framedCanvas
+}
+
+pub fun display(canvas: Artist.Canvas) {
+    let framedCanvas = frameCanvas(canvas)
+    log(framedCanvas)
+}
+
+pub fun printCollectionContents(_ collectionRef: &Artist.Collection) {
+  for key in collectionRef.pictures {
+    let picture = collectionRef[key] 
+    let canvas = picture.canvas
+    display(canvas: canvas)
+  }
+}
+
+pub fun showArtistsCollection(_ address: Address) {
+  log("Showing collection for ".concat(address.toString()))
+  if let collectionRef = getAccount(address).getCapability<&Artist.Collection>(/public/ArtistCollection).borrow() {
+    printCollectionContents(collectionRef)
+  } else {
+    log("No collection yet")
   }
 
-  // Quest W1Q3
-  pub resource Collection {
-    pub let pictureMap: @{String: Picture}
+}
 
-    pub fun deposit(picture: @Picture) {
-      self.pictureMap[picture.id] <-! picture 
-    }
+pub fun main() {
+    
+    let addresses: [Address] = [0x01, 0x02, 0x03, 0x04, 0x05]
 
-    init() {
-      self.pictureMap <- {}
-    }
+    for address in addresses {
+      showArtistsCollection(address)
+    } 
 
-    destroy() {
-      destroy self.pictureMap
-    }
-  }
-  pub fun createCollection(): @Collection {
-    return <- create Collection()
-  }
-
-  init() {
-    self.account.save(
-      <- create Printer(width: 5, height: 5),
-      to: /storage/ArtistPicturePrinter
-    )
-    self.account.link<&Printer>(
-      /public/ArtistPicturePrinter,
-      target: /storage/ArtistPicturePrinter
-    )
-
-    self.account.save(<- create Collection(), to: /storage/ArtistPictureCollection)
-    self.account.link<&Artist.Collection>(/public/ArtistPictureCollection, target: /storage/ArtistPictureCollection)
-  }
 }
